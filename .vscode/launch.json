@@ -8,28 +8,10 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug executable 'openai_dify_proxy'",
+            "program": "${workspaceFolder}/target/debug/openai_dify_proxy",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=openai_dify_proxy",
-                    "--package=openai_dify_proxy"
-                ],
-                "filter": {
-                    "name": "openai_dify_proxy",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'openai_dify_proxy'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
                     "--bin=openai_dify_proxy",
                     "--package=openai_dify_proxy"
                 ],
