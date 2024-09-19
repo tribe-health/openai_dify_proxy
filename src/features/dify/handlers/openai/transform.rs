@@ -32,7 +32,7 @@ pub fn construct_dify_request(openai_req: &OpenAIRequest) -> Result<DifyRequest,
             "conversation_history": conversation_history
         }),
         query,
-        response_mode: if openai_req.stream.unwrap_or(false) { "streaming".to_string() } else { "blocking".to_string() },
+        response_mode: if openai_req.stream.unwrap_or(true) { "streaming".to_string() } else { "blocking".to_string() },
         user: openai_req.user.clone().unwrap_or_else(|| "proxy".to_string()),
         temperature: openai_req.temperature,
         top_p: openai_req.top_p,
@@ -40,7 +40,7 @@ pub fn construct_dify_request(openai_req: &OpenAIRequest) -> Result<DifyRequest,
         tools: openai_req.tools.clone(),
     };
 
-    info!("Dify request constructed successfully");
+    info!("Dify request constructed successfully: {:?}", dify_request);
     Ok(dify_request)
 }
 
@@ -74,6 +74,13 @@ pub fn transform_dify_to_openai(dify_response: &DifyResponse, original_request: 
 
 pub fn transform_dify_to_openai_chunk(dify_response: &str, original_request: &OpenAIRequest) -> OpenAIResponse {
     info!("Transforming Dify chunk to OpenAI chunk");
+    
+    // Check if the response starts with "Error:"
+    if dify_response.trim().starts_with("Error:") {
+        return create_error_response(dify_response);
+    }
+
+    // Rest of the function remains the same
     OpenAIResponse {
         id: format!("chatcmpl-{}", Utc::now().timestamp_millis()),
         object: "chat.completion.chunk".to_string(),
@@ -114,6 +121,7 @@ pub fn create_final_chunk() -> OpenAIResponse {
     }
 }
 
+// Modify create_error_response to handle both string and borrowed str
 pub fn create_error_response(message: &str) -> OpenAIResponse {
     warn!("Creating error response: {}", message);
     OpenAIResponse {
@@ -125,7 +133,7 @@ pub fn create_error_response(message: &str) -> OpenAIResponse {
             index: 0,
             delta: OpenAIDelta {
                 role: Some("assistant".to_string()),
-                content: Some(format!("Error: {}", message)),
+                content: Some(message.to_string()), // Use the entire message
                 tool_calls: None,
                 files: None,
             },

@@ -49,7 +49,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .wrap(Logger::default())
             .service(
-                web::resource("/v1/chat/completions")
+                web::resource("/v1/chat{tail:.*}")
                     .route(web::post().to(chat_completion))
             )
     })
