@@ -1,17 +1,22 @@
 use actix_web::{web, HttpResponse, Responder};
 use reqwest::Client;
-use std::env;
 use log::{info, error};
 use actix_web::web::Bytes;
 use futures_util::StreamExt;
 use serde_json::Value;
-
+use crate::features::app::app_state::AppState;
 use crate::features::dify::handlers::openai::types::OpenAIRequest;
-use crate::features::dify::handlers::openai::transform::{construct_dify_request, transform_dify_to_openai, create_final_chunk, create_error_response};
+use crate::features::dify::handlers::openai::transform::{
+    construct_dify_request, transform_dify_to_openai_chunk, create_final_chunk, create_error_response,
+    transform_dify_to_openai
+};
 use crate::utils::status::reqwest_to_actix_status;
 use crate::features::dify::handlers::openai::types::DifyResponse;
 
-pub async fn chat_completion(req: web::Json<OpenAIRequest>) -> impl Responder {
+pub async fn chat_completion(
+    req: web::Json<OpenAIRequest>,
+    data: web::Data<AppState>
+) -> impl Responder {
     info!("Received POST request to /v1/chat/completions");
     info!("Input from OpenAI client: {:?}", req);
 
@@ -19,11 +24,9 @@ pub async fn chat_completion(req: web::Json<OpenAIRequest>) -> impl Responder {
     info!("Request to Dify: {:?}", dify_request);
 
     let client = Client::new();
-    let dify_api_url = env::var("DIFY_API_URL").expect("DIFY_API_URL must be set");
-    let dify_api_key = env::var("DIFY_API_KEY").expect("DIFY_API_KEY must be set");
 
-    let response = client.post(format!("{}/chat-messages", dify_api_url))
-        .header("Authorization", format!("Bearer {}", dify_api_key))
+    let response = client.post(format!("{}/chat-messages", data.dify_api_url))
+        .header("Authorization", format!("Bearer {}", data.dify_api_key))
         .json(&dify_request)
         .send()
         .await;
@@ -39,7 +42,8 @@ pub async fn chat_completion(req: web::Json<OpenAIRequest>) -> impl Responder {
                     .body(body);
             }
 
-            if req.stream {
+            info!("Dify API responded with status {}", status);
+            if req.stream.unwrap_or(true) {
                 handle_streaming_response(resp, req.into_inner()).await
             } else {
                 handle_blocking_response(resp, req.into_inner()).await
@@ -56,6 +60,7 @@ pub async fn chat_completion(req: web::Json<OpenAIRequest>) -> impl Responder {
 }
 
 async fn handle_streaming_response(resp: reqwest::Response, original_request: OpenAIRequest) -> HttpResponse {
+    info!("Streaming response from Dify API");
     let stream = resp.bytes_stream().flat_map(move |chunk| {
         futures_util::stream::iter(chunk.map(|bytes| {
             let chunk_str = String::from_utf8_lossy(&bytes);
@@ -64,8 +69,7 @@ async fn handle_streaming_response(resp: reqwest::Response, original_request: Op
             lines.flat_map(|line| {
                 if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
-                        let final_chunk = create_final_chunk();
-                        Some(Bytes::from(format!("data: {}\n\ndata: [DONE]\n\n", serde_json::to_string(&final_chunk).unwrap())))
+                        Some(Bytes::from("data: [DONE]\n\n"))
                     } else {
                         match serde_json::from_str::<Value>(data) {
                             Ok(parsed) => {
@@ -74,16 +78,11 @@ async fn handle_streaming_response(resp: reqwest::Response, original_request: Op
                                 
                                 // Only transform and forward "message" events
                                 if parsed["event"] == "message" {
-                                    match serde_json::from_value::<DifyResponse>(parsed) {
-                                        Ok(dify_response) => {
-                                            let transformed = transform_dify_to_openai(&dify_response, &original_request);
-                                            Some(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&transformed).unwrap())))
-                                        }
-                                        Err(e) => {
-                                            error!("Error parsing Dify response: {}", e);
-                                            let error_response = create_error_response(&format!("Error parsing Dify response: {}", e));
-                                            Some(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&error_response).unwrap())))
-                                        }
+                                    if let Some(answer) = parsed["answer"].as_str() {
+                                        let transformed = transform_dify_to_openai_chunk(answer, &original_request);
+                                        Some(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&transformed).unwrap())))
+                                    } else {
+                                        None
                                     }
                                 } else {
                                     None
@@ -107,12 +106,19 @@ async fn handle_streaming_response(resp: reqwest::Response, original_request: Op
         }))
     }).map(Ok::<_, std::convert::Infallible>);
 
-HttpResponse::Ok()
-    .content_type("text/event-stream")
-    .streaming(stream)
+    // Append the final chunk and [DONE] message after the stream ends
+    let stream_with_final_chunk = stream.chain(futures_util::stream::iter(vec![
+        Ok(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&create_final_chunk()).unwrap()))),
+        Ok(Bytes::from("data: [DONE]\n\n"))
+    ]));
+
+    HttpResponse::Ok()
+        .content_type("text/event-stream")
+        .streaming(stream_with_final_chunk)
 }
 
 async fn handle_blocking_response(resp: reqwest::Response, original_request: OpenAIRequest) -> HttpResponse {
+    info!("Blocking response from Dify API");
     match resp.json::<DifyResponse>().await {
         Ok(dify_response) => {
             let openai_response = transform_dify_to_openai(&dify_response, &original_request);

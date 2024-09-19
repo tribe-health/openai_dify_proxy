@@ -3,11 +3,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct OpenAIMessage {
     pub role: String,
-    pub content: String,
+    #[serde(default)]
+    pub content: Vec<MessageContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<FunctionCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MessageContent {
+    pub r#type: String,
+    pub text: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -27,12 +34,18 @@ pub struct ToolCall {
 pub struct OpenAIRequest {
     pub messages: Vec<OpenAIMessage>,
     #[serde(default)]
-    pub stream: bool,
+    pub tools: Vec<Tool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
-    pub tools: Option<Vec<Tool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
 }
 
@@ -99,6 +112,9 @@ pub struct OpenAIChoice {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct OpenAIDelta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
@@ -112,3 +128,13 @@ pub struct Usage {
     pub completion_tokens: u32,
     pub total_tokens: u32,
 }
+
+// We don't need this struct anymore as we're using OpenAIResponse for chunks
+// #[derive(Debug, Serialize)]
+// struct OpenAIChunk {
+//     id: String,
+//     object: String,
+//     created: u64,
+//     model: String,
+//     choices: Vec<OpenAIChoice>,
+// }
