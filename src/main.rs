@@ -28,7 +28,7 @@ async fn main() -> std::io::Result<()> {
     info!("Dify key: {}", dify_api_key);
 
     let host = "0.0.0.0";
-    let port = 8080;
+    let port = 8223;
 
     info!("Starting server at http(s)://{}:{}", host, port);
 

@@ -1,34 +1,58 @@
 use chrono::Utc;
 use serde_json::json;
+use log::{info, warn};
 
 use crate::features::dify::handlers::openai::types::{
     OpenAIRequest, OpenAIResponse, OpenAIChoice, OpenAIDelta,
-    DifyRequest, DifyResponse,
+    DifyRequest, DifyResponse, MessageContent,
 };
 
-pub fn construct_dify_request(openai_req: &OpenAIRequest) -> DifyRequest {
+pub fn construct_dify_request(openai_req: &OpenAIRequest) -> Result<DifyRequest, String> {
+    info!("Constructing Dify request from OpenAI request");
+
+    if openai_req.messages.is_empty() {
+        return Err("OpenAI request contains no messages".to_string());
+    }
+
     let last_message = openai_req.messages.last().unwrap();
     let conversation_history = openai_req.messages[..openai_req.messages.len() - 1]
         .iter()
-        .map(|m| format!("{}: {}", m.role, m.content.iter().map(|c| c.text.clone()).collect::<Vec<_>>().join(" ")))
+        .map(|m| format!("{}: {}", m.role, message_content_to_string(&m.content)))
         .collect::<Vec<String>>()
         .join("\n");
 
-    DifyRequest {
+    let query = vec![message_content_to_string(&last_message.content)];
+
+    if query[0].is_empty() {
+        warn!("Last message in OpenAI request contains no content");
+    }
+
+    let dify_request = DifyRequest {
         inputs: json!({
             "conversation_history": conversation_history
         }),
-        query: vec![last_message.content.iter().map(|c| c.text.clone()).collect::<String>()],
+        query,
         response_mode: if openai_req.stream.unwrap_or(false) { "streaming".to_string() } else { "blocking".to_string() },
         user: openai_req.user.clone().unwrap_or_else(|| "proxy".to_string()),
         temperature: openai_req.temperature,
         top_p: openai_req.top_p,
         max_tokens: openai_req.max_tokens,
-        tools: Some(openai_req.tools.clone()),
+        tools: openai_req.tools.clone(),
+    };
+
+    info!("Dify request constructed successfully");
+    Ok(dify_request)
+}
+
+fn message_content_to_string(content: &MessageContent) -> String {
+    match content {
+        MessageContent::String(s) => s.clone(),
+        MessageContent::Complex(complex) => complex.iter().map(|c| c.text.clone()).collect::<Vec<_>>().join(" "),
     }
 }
 
 pub fn transform_dify_to_openai(dify_response: &DifyResponse, original_request: &OpenAIRequest) -> OpenAIResponse {
+    info!("Transforming Dify response to OpenAI response");
     OpenAIResponse {
         id: format!("chatcmpl-{}", Utc::now().timestamp_millis()),
         object: "chat.completion".to_string(),
@@ -49,6 +73,7 @@ pub fn transform_dify_to_openai(dify_response: &DifyResponse, original_request: 
 }
 
 pub fn transform_dify_to_openai_chunk(dify_response: &str, original_request: &OpenAIRequest) -> OpenAIResponse {
+    info!("Transforming Dify chunk to OpenAI chunk");
     OpenAIResponse {
         id: format!("chatcmpl-{}", Utc::now().timestamp_millis()),
         object: "chat.completion.chunk".to_string(),
@@ -69,6 +94,7 @@ pub fn transform_dify_to_openai_chunk(dify_response: &str, original_request: &Op
 }
 
 pub fn create_final_chunk() -> OpenAIResponse {
+    info!("Creating final OpenAI chunk");
     OpenAIResponse {
         id: format!("chatcmpl-{}", Utc::now().timestamp_millis()),
         object: "chat.completion.chunk".to_string(),
@@ -89,6 +115,7 @@ pub fn create_final_chunk() -> OpenAIResponse {
 }
 
 pub fn create_error_response(message: &str) -> OpenAIResponse {
+    warn!("Creating error response: {}", message);
     OpenAIResponse {
         id: format!("chatcmpl-error-{}", Utc::now().timestamp_millis()),
         object: "chat.completion.chunk".to_string(),

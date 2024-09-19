@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct OpenAIMessage {
     pub role: String,
-    #[serde(default)]
-    pub content: Vec<MessageContent>,
+    pub content: MessageContent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_call: Option<FunctionCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -12,7 +11,14 @@ pub struct OpenAIMessage {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct MessageContent {
+#[serde(untagged)]
+pub enum MessageContent {
+    String(String),
+    Complex(Vec<ComplexMessageContent>),
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ComplexMessageContent {
     pub r#type: String,
     pub text: String,
 }
@@ -34,7 +40,7 @@ pub struct ToolCall {
 pub struct OpenAIRequest {
     pub messages: Vec<OpenAIMessage>,
     #[serde(default)]
-    pub tools: Vec<Tool>,
+    pub tools: Option<Vec<Tool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,13 +134,3 @@ pub struct Usage {
     pub completion_tokens: u32,
     pub total_tokens: u32,
 }
-
-// We don't need this struct anymore as we're using OpenAIResponse for chunks
-// #[derive(Debug, Serialize)]
-// struct OpenAIChunk {
-//     id: String,
-//     object: String,
-//     created: u64,
-//     model: String,
-//     choices: Vec<OpenAIChoice>,
-// }

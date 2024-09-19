@@ -1,6 +1,6 @@
 use actix_web::{web, HttpResponse, Responder};
 use reqwest::Client;
-use log::{info, error};
+use log::{info, error, warn};
 use actix_web::web::Bytes;
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -20,7 +20,15 @@ pub async fn chat_completion(
     info!("Received POST request to /v1/chat/completions");
     info!("Input from OpenAI client: {:?}", req);
 
-    let dify_request = construct_dify_request(&req);
+    let dify_request = match construct_dify_request(&req) {
+        Ok(request) => request,
+        Err(e) => {
+            error!("Failed to construct Dify request: {}", e);
+            return HttpResponse::BadRequest()
+                .content_type("application/json")
+                .json(create_error_response(&format!("Failed to construct Dify request: {}", e)));
+        }
+    };
     info!("Request to Dify: {:?}", dify_request);
 
     let client = Client::new();
@@ -54,7 +62,7 @@ pub async fn chat_completion(
             error!("{}", error_message);
             HttpResponse::InternalServerError()
                 .content_type("application/json")
-                .body(error_message)
+                .json(create_error_response(&error_message))
         }
     }
 }
@@ -82,9 +90,12 @@ async fn handle_streaming_response(resp: reqwest::Response, original_request: Op
                                         let transformed = transform_dify_to_openai_chunk(answer, &original_request);
                                         Some(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&transformed).unwrap())))
                                     } else {
+                                        warn!("Received message event without answer field");
                                         None
                                     }
                                 } else {
+                                    // Log non-message events
+                                    info!("Received non-message event: {}", parsed["event"]);
                                     None
                                 }
                             }
@@ -96,6 +107,7 @@ async fn handle_streaming_response(resp: reqwest::Response, original_request: Op
                         }
                     }
                 } else {
+                    warn!("Received line without 'data:' prefix: {}", line);
                     None
                 }
             }).collect::<Vec<Bytes>>()
