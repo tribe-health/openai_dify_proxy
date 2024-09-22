@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use reqwest::Client;
 use log::{info, error, warn};
 use actix_web::web::Bytes;
@@ -15,10 +15,23 @@ use crate::features::dify::handlers::openai::types::DifyResponse;
 
 pub async fn chat_completion(
     req: web::Json<OpenAIRequest>,
-    data: web::Data<AppState>
+    data: web::Data<AppState>,
+    http_req: HttpRequest
 ) -> impl Responder {
     info!("Received POST request to /v1/chat/completions");
     info!("Input from OpenAI client: {:?}", req);
+
+    // Retrieve the API key from the header
+    let dify_api_key = match http_req.headers().get("DIFY_API_KEY") {
+        Some(header_value) => header_value.to_str().unwrap_or(""),
+        None => "",
+    };
+
+    if dify_api_key.is_empty() {
+        return HttpResponse::Unauthorized()
+            .content_type("application/json")
+            .json(create_error_response("DIFY_API_KEY header is missing or empty"));
+    }
 
     let dify_request = match construct_dify_request(&req) {
         Ok(request) => request,
@@ -34,7 +47,7 @@ pub async fn chat_completion(
     let client = Client::new();
 
     let response = client.post(format!("{}/chat-messages", data.dify_api_url))
-        .header("Authorization", format!("Bearer {}", data.dify_api_key))
+        .header("Authorization", format!("Bearer {}", dify_api_key))
         .json(&dify_request)
         .send()
         .await;

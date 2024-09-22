@@ -19,13 +19,11 @@ async fn main() -> std::io::Result<()> {
     dotenv().ok();
 
     let dify_api_url = env::var("DIFY_API_URL").expect("DIFY_API_URL must be set");
-    let dify_api_key = env::var("DIFY_API_KEY").expect("DIFY_API_KEY must be set");
 
     #[cfg(feature = "logging")]
     env_logger::init_from_env(Env::default().default_filter_or("info"));
 
     info!("Dify server URL: {}", dify_api_url);
-    info!("Dify key: {}", dify_api_key);
 
     let host = "0.0.0.0";
     let port = 8223;
@@ -34,7 +32,6 @@ async fn main() -> std::io::Result<()> {
 
     let app_state = web::Data::new(AppState {
         dify_api_url: dify_api_url.clone(),
-        dify_api_key: dify_api_key.clone(),
     });
 
     HttpServer::new(move || {

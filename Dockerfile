@@ -5,9 +5,10 @@ COPY . .
 RUN cargo build --release
 
 # Runtime stage
-FROM debian:bullseye-slim
-RUN apt-get update && apt-get install -y libssl1.1 && rm -rf /var/lib/apt/lists/*
+FROM ubuntu:22.04
 COPY --from=builder /usr/src/app/target/release/openai_dify_proxy /usr/local/bin/app
+
+RUN apt-get update && apt-get install -y libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Create .env file
 RUN echo "DIFY_API_URL=${DIFY_API_URL}\nDIFY_API_KEY=${DIFY_API_KEY}" > /usr/local/bin/.env
