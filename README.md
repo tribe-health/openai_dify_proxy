@@ -17,7 +17,7 @@ Key features:
 1. Clone the repository
 2. Run `cargo run` to start the server
 3. Use the proxy server as you would use the OpenAI API, but with the following modifications:
-   - Set the base URL to your proxy server's address (e.g., `http://localhost:8080`)
+   - Set the base URL to your proxy server's address (e.g., `http://localhost:8223`)
    - Include a `DIFY_API_KEY` header in your requests with your Dify API key
 
 Example using curl:
