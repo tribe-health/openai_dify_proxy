@@ -11,7 +11,7 @@ COPY --from=builder /usr/src/app/target/release/openai_dify_proxy /usr/local/bin
 RUN apt-get update && apt-get install -y libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Create .env file
-RUN echo "DIFY_API_URL=${DIFY_API_URL}\nDIFY_API_KEY=${DIFY_API_KEY}" > /usr/local/bin/.env
+RUN echo "DIFY_API_URL=${DIFY_API_URL}" > /usr/local/bin/.env
 
-EXPOSE 8080
+EXPOSE 8223
 CMD ["app"]

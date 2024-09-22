@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, Responder, HttpRequest};
+use actix_web::{web, HttpResponse, HttpRequest};
 use reqwest::Client;
 use log::{info, error, warn};
 use actix_web::web::Bytes;
@@ -17,29 +17,29 @@ pub async fn chat_completion(
     req: web::Json<OpenAIRequest>,
     data: web::Data<AppState>,
     http_req: HttpRequest
-) -> impl Responder {
+) -> Result<HttpResponse, actix_web::Error> {
     info!("Received POST request to /v1/chat/completions");
     info!("Input from OpenAI client: {:?}", req);
 
-    // Retrieve the API key from the header
-    let dify_api_key = match http_req.headers().get("DIFY_API_KEY") {
-        Some(header_value) => header_value.to_str().unwrap_or(""),
-        None => "",
+    // Retrieve the API key from the Authorization header
+    let api_key = match http_req.headers().get("Authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|auth| auth.strip_prefix("Bearer ")) {
+        Some(key) => key,
+        None => {
+            return Ok(HttpResponse::Unauthorized()
+                .content_type("application/json")
+                .json(create_error_response("Missing or invalid Authorization header")));
+        }
     };
-
-    if dify_api_key.is_empty() {
-        return HttpResponse::Unauthorized()
-            .content_type("application/json")
-            .json(create_error_response("DIFY_API_KEY header is missing or empty"));
-    }
 
     let dify_request = match construct_dify_request(&req) {
         Ok(request) => request,
         Err(e) => {
             error!("Failed to construct Dify request: {}", e);
-            return HttpResponse::BadRequest()
+            return Ok(HttpResponse::BadRequest()
                 .content_type("application/json")
-                .json(create_error_response(&format!("Failed to construct Dify request: {}", e)));
+                .json(create_error_response(&format!("Failed to construct Dify request: {}", e))));
         }
     };
     info!("Request to Dify: {:?}", dify_request);
@@ -47,7 +47,7 @@ pub async fn chat_completion(
     let client = Client::new();
 
     let response = client.post(format!("{}/chat-messages", data.dify_api_url))
-        .header("Authorization", format!("Bearer {}", dify_api_key))
+        .header("Authorization", format!("Bearer {}", api_key))
         .json(&dify_request)
         .send()
         .await;
@@ -58,9 +58,9 @@ pub async fn chat_completion(
             if !status.is_success() {
                 let body = resp.text().await.unwrap_or_else(|_| "No response body".to_string());
                 error!("Dify API responded with status {}: {}", status, body);
-                return HttpResponse::build(reqwest_to_actix_status(status))
+                return Ok(HttpResponse::build(reqwest_to_actix_status(status))
                     .content_type("application/json")
-                    .body(body);
+                    .body(body));
             }
 
             info!("Dify API responded with status {}", status);
@@ -73,14 +73,14 @@ pub async fn chat_completion(
         Err(e) => {
             let error_message = format!("Error calling Dify API: {}", e);
             error!("{}", error_message);
-            HttpResponse::InternalServerError()
+            Ok(HttpResponse::InternalServerError()
                 .content_type("application/json")
-                .json(create_error_response(&error_message))
+                .json(create_error_response(&error_message)))
         }
     }
 }
 
-async fn handle_streaming_response(resp: reqwest::Response, original_request: OpenAIRequest) -> HttpResponse {
+async fn handle_streaming_response(resp: reqwest::Response, original_request: OpenAIRequest) -> Result<HttpResponse, actix_web::Error> {
     info!("Streaming response from Dify API");
     let stream = resp.bytes_stream().flat_map(move |chunk| {
         futures_util::stream::iter(chunk.map(|bytes| {
@@ -137,27 +137,27 @@ async fn handle_streaming_response(resp: reqwest::Response, original_request: Op
         Ok(Bytes::from("data: [DONE]\n\n"))
     ]));
 
-    HttpResponse::Ok()
+    Ok(HttpResponse::Ok()
         .content_type("text/event-stream")
-        .streaming(stream_with_final_chunk)
+        .streaming(stream_with_final_chunk))
 }
 
-async fn handle_blocking_response(resp: reqwest::Response, original_request: OpenAIRequest) -> HttpResponse {
+async fn handle_blocking_response(resp: reqwest::Response, original_request: OpenAIRequest) -> Result<HttpResponse, actix_web::Error> {
     info!("Blocking response from Dify API");
     match resp.json::<DifyResponse>().await {
         Ok(dify_response) => {
             let openai_response = transform_dify_to_openai(&dify_response, &original_request);
-            HttpResponse::Ok()
+            Ok(HttpResponse::Ok()
                 .content_type("application/json")
-                .json(openai_response)
+                .json(openai_response))
         }
         Err(e) => {
             let error_message = format!("Error parsing Dify response: {}", e);
             error!("{}", error_message);
             let error_response = create_error_response(&error_message);
-            HttpResponse::InternalServerError()
+            Ok(HttpResponse::InternalServerError()
                 .content_type("application/json")
-                .json(error_response)
+                .json(error_response))
         }
     }
 }

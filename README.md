@@ -38,8 +38,11 @@ curl http://localhost:8080/v1/chat/completions \
 The server requires the following environment variables:
 
 - `DIFY_API_URL`: The URL of your Dify API endpoint
+- `DIFY_API_KEY`: Your Dify API key for the Authorization header
 
 You can set these in a `.env` file or in your environment before running the server.
+
+Note: The `DIFY_API_KEY` should be passed in the Authorization header when making requests to the Dify API.
 
 ## Note
 
