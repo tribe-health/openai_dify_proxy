@@ -2,11 +2,12 @@ use chrono::Utc;
 use serde_json::json;
 use log::{info, warn};
 
-use crate::features::dify::handlers::openai::types::{
+use crate::features::common::types::{
     OpenAIRequest, OpenAIResponse, OpenAIChoice, OpenAIDelta,
     DifyRequest, DifyResponse, MessageContent,
 };
 
+/// Constructs a Dify request from the incoming OpenAI request
 pub fn construct_dify_request(openai_req: &OpenAIRequest) -> Result<DifyRequest, String> {
     info!("Constructing Dify request from OpenAI request");
 
@@ -44,6 +45,7 @@ pub fn construct_dify_request(openai_req: &OpenAIRequest) -> Result<DifyRequest,
     Ok(dify_request)
 }
 
+/// Converts message content to string
 fn message_content_to_string(content: &MessageContent) -> String {
     match content {
         MessageContent::String(s) => s.clone(),
@@ -51,13 +53,14 @@ fn message_content_to_string(content: &MessageContent) -> String {
     }
 }
 
-pub fn transform_dify_to_openai(dify_response: &DifyResponse, original_request: &OpenAIRequest) -> OpenAIResponse {
+/// Transforms the Dify response into the OpenAI response
+pub fn transform_dify_to_openai(dify_response: &DifyResponse, _original_request: &OpenAIRequest) -> OpenAIResponse {
     info!("Transforming Dify response to OpenAI response");
     OpenAIResponse {
         id: format!("chatcmpl-{}", Utc::now().timestamp_millis()),
         object: "chat.completion".to_string(),
         created: Utc::now().timestamp() as u64,
-        model: original_request.model.clone().unwrap_or_else(|| "dify-transformed".to_string()),
+        model: "unknown".to_string(), // Default to "unknown" as Dify doesn't provide model info
         choices: vec![OpenAIChoice {
             index: 0,
             delta: OpenAIDelta {
@@ -67,6 +70,28 @@ pub fn transform_dify_to_openai(dify_response: &DifyResponse, original_request: 
                 files: dify_response.files.clone(),
             },
             finish_reason: Some("stop".to_string()),
+        }],
+        usage: None,
+    }
+}
+
+/// Create a standardized error response in the OpenAI format
+pub fn create_error_response(message: &str) -> OpenAIResponse {
+    warn!("Creating error response: {}", message);
+    OpenAIResponse {
+        id: format!("chatcmpl-error-{}", Utc::now().timestamp_millis()),
+        object: "chat.completion.chunk".to_string(),
+        created: Utc::now().timestamp() as u64,
+        model: "dify-transformed".to_string(),
+        choices: vec![OpenAIChoice {
+            index: 0,
+            delta: OpenAIDelta {
+                role: Some("assistant".to_string()),
+                content: Some(message.to_string()), // Use the entire message
+                tool_calls: None,
+                files: None,
+            },
+            finish_reason: Some("error".to_string()),
         }],
         usage: None,
     }
@@ -85,7 +110,7 @@ pub fn transform_dify_to_openai_chunk(dify_response: &str, original_request: &Op
         id: format!("chatcmpl-{}", Utc::now().timestamp_millis()),
         object: "chat.completion.chunk".to_string(),
         created: Utc::now().timestamp() as u64,
-        model: original_request.model.clone().unwrap_or_else(|| "dify-transformed".to_string()),
+        model: original_request.model.clone().unwrap_or_else(|| "dify".to_string()),
         choices: vec![OpenAIChoice {
             index: 0,
             delta: OpenAIDelta {
@@ -95,49 +120,6 @@ pub fn transform_dify_to_openai_chunk(dify_response: &str, original_request: &Op
                 files: None,
             },
             finish_reason: None,
-        }],
-        usage: None,
-    }
-}
-
-pub fn create_final_chunk() -> OpenAIResponse {
-    info!("Creating final OpenAI chunk");
-    OpenAIResponse {
-        id: format!("chatcmpl-{}", Utc::now().timestamp_millis()),
-        object: "chat.completion.chunk".to_string(),
-        created: Utc::now().timestamp() as u64,
-        model: "dify-transformed".to_string(),
-        choices: vec![OpenAIChoice {
-            index: 0,
-            delta: OpenAIDelta {
-                role: None,
-                content: None,
-                tool_calls: None,
-                files: None,
-            },
-            finish_reason: Some("stop".to_string()),
-        }],
-        usage: None,
-    }
-}
-
-// Modify create_error_response to handle both string and borrowed str
-pub fn create_error_response(message: &str) -> OpenAIResponse {
-    warn!("Creating error response: {}", message);
-    OpenAIResponse {
-        id: format!("chatcmpl-error-{}", Utc::now().timestamp_millis()),
-        object: "chat.completion.chunk".to_string(),
-        created: Utc::now().timestamp() as u64,
-        model: "dify-transformed".to_string(),
-        choices: vec![OpenAIChoice {
-            index: 0,
-            delta: OpenAIDelta {
-                role: Some("assistant".to_string()),
-                content: Some(message.to_string()), // Use the entire message
-                tool_calls: None,
-                files: None,
-            },
-            finish_reason: Some("error".to_string()),
         }],
         usage: None,
     }
