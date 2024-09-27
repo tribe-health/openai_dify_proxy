@@ -1,7 +1,7 @@
 use actix_web::error::ErrorInternalServerError;
 use actix_web::{web, HttpResponse, HttpRequest};
-use reqwest::Client;
-use reqwest::StatusCode as ReqwestStatusCode;
+use awc::Client;
+use serde_json::Value;
 use actix_web::http::StatusCode as ActixStatusCode;
 use log::{info, error};
 use futures_util::{StreamExt, stream::once};
@@ -14,6 +14,7 @@ use bytes::Bytes;
 use serde_json;
 use futures::future::ready;
 use crate::features::common::types::DifyRequest;
+use crate::features::common::types::ChatCompletionPayload;
 
 fn reqwest_to_actix_status(status: ReqwestStatusCode) -> ActixStatusCode {
     ActixStatusCode::from_u16(status.as_u16()).unwrap_or(ActixStatusCode::INTERNAL_SERVER_ERROR)
@@ -43,55 +44,26 @@ async fn handle_dify_response(resp: reqwest::Response, original_request: OpenAIR
 }
 
 pub async fn chat_completion(
-    req: web::Json<OpenAIRequest>,
-    data: web::Data<AppState>,
-    http_req: HttpRequest
-) -> Result<HttpResponse, actix_web::Error> {
-    info!("Received POST request to /v1/chat/completions");
-    info!("Input from OpenAI client: {:?}", req);
+    payload: web::Json<ChatCompletionPayload>,
+    config: web::Data<Config>,
+) -> Result<HttpResponse, Error> {
+    let client = Client::default();
+    let url = config.dify_api_url.clone();
 
-    let api_key = match extract_api_key(&http_req) {
-        Some(key) => key,
-        None => {
-            return Err(actix_web::error::ErrorUnauthorized("Missing or invalid Authorization header"));
-        }
-    };
+    let mut response = client.post(url)
+        .insert_header(("Authorization", format!("Bearer {}", config.openai_api_key)))
+        .insert_header(("Content-Type", "application/json"))
+        .send_json(&payload)
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
 
-    let dify_request = match construct_dify_request_or_error(&req).await {
-        Ok(request) => request,
-        Err(e) => return Ok(e),
-    };
-    info!("Request to Dify: {:?}", dify_request);
+    let body: Value = response.json().await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
 
-    let client = Client::new();
-    let url = format!("{}/chat-messages", data.dify_api_url);
-
-    let response = match client.post(url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .json(&dify_request)
-        .send()
-        .await {
-            Ok(response) => response,
-            Err(e) => {
-                return Err(ErrorInternalServerError(format!("Failed to send request to Dify: {}", e)));
-            }
-        };
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_else(|_| "No response body".to_string());
-        error!("Dify API responded with status {}: {}", status, body);
-        let error_response = create_error_response(&format!("Dify API responded with status {}: {}", status, body));
-        return Ok(HttpResponse::build(reqwest_to_actix_status(status))
-            .content_type("application/json")
-            .json(error_response));
-    }
-
-    info!("Dify API responded with status {}", response.status());
-    handle_dify_response(response, req.into_inner()).await
+    Ok(HttpResponse::Ok().json(body))
 }
 
-async fn handle_streaming_response(resp: reqwest::Response, original_request: OpenAIRequest) -> Result<HttpResponse, actix_web::Error> {
+async fn handle_streaming_response(resp: awc::ClientResponse, original_request: OpenAIRequest) -> Result<HttpResponse, actix_web::Error> {
     info!("Streaming response from Dify API");
 
     let original_request = original_request.clone();
@@ -148,9 +120,10 @@ async fn handle_streaming_response(resp: reqwest::Response, original_request: Op
         .streaming(final_stream))
 }
 
-async fn handle_blocking_response(resp: reqwest::Response, original_request: OpenAIRequest) -> Result<HttpResponse, actix_web::Error> {
+async fn handle_blocking_response(resp: awc::ConnectResponse, original_request: OpenAIRequest) -> Result<HttpResponse, actix_web::Error> {
     info!("Blocking response from Dify API");
-    match resp.json::<DifyResponse>().await {
+    let body = resp.into_body().await?.to_vec();
+    match serde_json::from_slice::<DifyResponse>(&body) {
         Ok(dify_response) => {
             let openai_response = transform_dify_to_openai(&dify_response, &original_request);
             Ok(HttpResponse::Ok()

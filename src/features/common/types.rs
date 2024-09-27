@@ -146,3 +146,47 @@ pub struct DifyEvent {
     pub tool_calls: Option<Vec<ToolCall>>,
     pub files: Option<Vec<File>>
 }
+
+
+#[derive(Deserialize, Serialize)]
+pub struct ImageGenerationRequest {
+    prompt: String,
+    n: Option<u8>,
+    size: Option<String>,
+    return_ipfs: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct ImageGenerationResponse {
+    url: String,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct ReplicateRequest {
+    version: String,
+    input: ReplicateInput,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ReplicateInput {
+    prompt: String,
+    num_outputs: u8,
+    width: u32,
+    height: u32,
+    // Add other Replicate-specific parameters here
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scheduler: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_inference_steps: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    guidance_scale: Option<f32>,
+    output_format: Option<String>,
+    output_quality: Option<u8>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct ReplicatePrediction {
+    id: String,
+    status: String,
+    output: Option<Vec<String>>,
+}
