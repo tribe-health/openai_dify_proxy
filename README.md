@@ -1,91 +1,213 @@
 # OpenAI Dify Proxy
 
-This is a proxy server that forwards requests from OpenAI-compatible clients to a Dify API. It allows you to use OpenAI-compatible tools and libraries with Dify's AI services.
+A high-performance proxy server that enables OpenAI-compatible clients to seamlessly interact with Dify's AI services by translating between their respective API formats.
 
-## About the Service
+## Architecture Overview
 
-This proxy acts as a bridge between OpenAI's API format and Dify's API. It translates requests from the OpenAI format to Dify's format, and then translates the responses back to the OpenAI format. This allows you to use tools and libraries designed for OpenAI with Dify's AI services.
+This application follows a clean, feature-based architecture pattern implemented in Rust, utilizing Actix-web for high-performance HTTP handling. Here's a detailed breakdown of the system:
 
-Key features:
+### System Architecture Diagram
 
-- Supports chat completions
-- Handles both streaming and non-streaming responses
-- Translates between OpenAI and Dify request/response formats
-
-## Usage
-
-1. Clone the repository
-2. Run `cargo run` to start the server
-3. Use the proxy server as you would use the OpenAI API, but with the following modifications:
-   - Set the base URL to your proxy server's address (e.g., `http://localhost:8223`)
-   - Include a `DIFY_API_KEY` header in your requests with your Dify API key
-
-Example using curl:
-
-```bash
-bash
-curl http://localhost:8080/v1/chat/completions \
--H "Content-Type: application/json" \
--H "DIFY_API_KEY: your_dify_api_key_here" \
--d '{
-"model": "dify",
-"messages": [{"role": "user", "content": "Hello!"}]
-}'
+```mermaid
+graph TD
+    Client[OpenAI Client] -->|OpenAI Format Request| Proxy[Proxy Server]
+    Proxy -->|Transform Request| DifyAPI[Dify API]
+    DifyAPI -->|Dify Response| Proxy
+    Proxy -->|Transform Response| Client
+    
+    subgraph Proxy Server
+        Handler[Chat Completion Handler]
+        Transform[Request/Response Transformer]
+        Error[Error Handler]
+        Stream[Stream Processor]
+        
+        Handler --> Transform
+        Transform --> Stream
+        Handler --> Error
+    end
 ```
+
+### Component Model
+
+```mermaid
+classDiagram
+    class OpenAIRequest {
+        +Vec~OpenAIMessage~ messages
+        +Option~Vec~Tool~~ tools
+        +Option~bool~ stream
+        +Option~f32~ temperature
+        +Option~f32~ top_p
+        +Option~u32~ max_tokens
+        +Option~String~ model
+        +Option~String~ user
+    }
+    
+    class DifyRequest {
+        +Value inputs
+        +Vec~String~ query
+        +String response_mode
+        +String user
+        +Option~f32~ temperature
+        +Option~f32~ top_p
+        +Option~u32~ max_tokens
+        +Option~Vec~Tool~~ tools
+    }
+    
+    class OpenAIResponse {
+        +String id
+        +String object
+        +u64 created
+        +String model
+        +Vec~OpenAIChoice~ choices
+        +Option~Usage~ usage
+    }
+    
+    class DifyResponse {
+        +String event
+        +String task_id
+        +String conversation_id
+        +String message_id
+        +u64 created_at
+        +String answer
+        +Option~Vec~ToolCall~~ tool_calls
+        +Option~Vec~File~~ files
+    }
+    
+    OpenAIRequest --> DifyRequest : transforms to
+    DifyResponse --> OpenAIResponse : transforms to
+
+```
+
+## Technical Architecture
+
+### Core Components
+
+1. **Request Handler (`chat_completion.rs`)**
+   - Handles incoming OpenAI-format requests
+   - Manages authentication and request validation
+   - Coordinates request/response transformation
+   - Supports both streaming and blocking responses
+
+2. **Type System (`types.rs`)**
+   - Defines the complete type hierarchy for both OpenAI and Dify formats
+   - Implements serialization/deserialization using Serde
+   - Provides robust error handling and type safety
+
+3. **Application State (`app_state.rs`)**
+   - Manages application configuration
+   - Handles environment variable management
+   - Provides shared state across requests
+
+### Key Features
+
+1. **Format Translation**
+   - Bidirectional translation between OpenAI and Dify formats
+   - Preserves all essential request/response parameters
+   - Handles complex message structures and tool calls
+
+2. **Streaming Support**
+   - Real-time streaming of responses
+   - Efficient chunk processing and transformation
+   - Maintains connection stability
+
+3. **Error Handling**
+   - Comprehensive error type system
+   - Detailed error messages and appropriate status codes
+   - Graceful failure handling
+
+### Performance Characteristics
+
+- Built on Actix-web for high-performance async I/O
+- Efficient memory usage through stream processing
+- Minimal overhead in request/response transformation
+- Configurable timeouts and connection management
 
 ## Configuration
 
 The server requires the following environment variables:
 
 - `DIFY_API_URL`: The URL of your Dify API endpoint
-- `DIFY_API_KEY`: Your Dify API key for the Authorization header
+- `HOST`: Server host (defaults to "0.0.0.0")
+- `PORT`: Server port (defaults to "8223")
 
-You can set these in a `.env` file or in your environment before running the server.
+Optional features can be enabled via Cargo features:
+- `logging`: Enables detailed logging (enabled by default)
 
-Note: The `DIFY_API_KEY` should be passed in the Authorization header when making requests to the Dify API.
+## Usage
 
-## Note
+1. Clone the repository
+2. Configure environment variables (create a `.env` file)
+3. Run the server:
+   ```bash
+   cargo run
+   ```
 
-This proxy is designed to work with Dify's API. Ensure you have the necessary permissions and API access from Dify before using this proxy.
+### Example Request
 
-## Image Support
+```bash
+curl http://localhost:8223/v1/chat/completions \
+-H "Content-Type: application/json" \
+-H "Authorization: Bearer your_dify_api_key_here" \
+-d '{
+  "model": "gpt-3.5-turbo",
+  "messages": [{"role": "user", "content": "Hello!"}],
+  "stream": true
+}'
+```
 
-The server uses IPFS to store images. The IPFS upload URL is set in the `.env` file.
+## Design Assessment
 
-The image storage directory is set in the `.env` file.
+### Strengths
 
+1. **Clean Architecture**
+   - Clear separation of concerns
+   - Feature-based organization
+   - Strong type safety
 
+2. **Robust Error Handling**
+   - Comprehensive error types
+   - Detailed error messages
+   - Proper status code mapping
 
-Certainly! Here's a detailed markdown table describing each parameter available via HTTP header for the image generation API:
+3. **Efficient Processing**
+   - Stream-based processing
+   - Minimal memory overhead
+   - Async/await throughout
 
-| HTTP Header | Parameter Name | Purpose | Acceptable Values |
-|-------------|----------------|---------|-------------------|
-| X-Output-Format | output_format | Specifies the desired output image format | "jpg", "png", "webp" |
-| X-Replicate-Scheduler | scheduler | Defines the sampling method used in the diffusion process | "DDIM", "DPMSolverMultistep", "K_EULER", "K_EULER_ANCESTRAL", "PNDM" |
-| X-Replicate-Num-Inference-Steps | num_inference_steps | Controls the number of denoising steps in the diffusion process | Integer between 1 and 500 (typical range: 20-100) |
-| X-Replicate-Guidance-Scale | guidance_scale | Determines how closely the image should adhere to the prompt | Float between 1 and 20 (typical range: 5-15) |
-| X-Replicate-Seed | seed | Sets a specific seed for reproducible results | Integer (0 or greater) |
-| X-Replicate-Negative-Prompt | negative_prompt | Specifies what the model should avoid in the image | String |
-| X-Replicate-Prompt-Strength | prompt_strength | Controls the balance between the input image and the prompt in img2img | Float between 0 and 1 |
-| X-Replicate-Num-Outputs | num_outputs | Specifies the number of images to generate | Integer between 1 and 4 |
-| X-Replicate-Safety-Checker | safety_checker | Enables or disables the safety filter | "yes" or "no" |
-| X-Replicate-Enhance-Prompt | enhance_prompt | Enables AI-assisted prompt enhancement | "yes" or "no" |
-| X-Replicate-Upscale | upscale | Requests image upscaling after generation | "yes" or "no" |
-| X-Replicate-Upscale-Factor | upscale_factor | Specifies the factor by which to upscale the image | Integer (typically 2 or 4) |
-| X-Replicate-Style-Preset | style_preset | Applies a predefined style to the generated image | String (e.g., "anime", "photographic", "digital-art") |
-| X-Replicate-Init-Image | init_image | URL of an initial image for img2img or inpainting | Valid URL string |
-| X-Replicate-Mask | mask | URL of a mask image for inpainting | Valid URL string |
+### Areas for Improvement
 
-Please note:
+1. **Monitoring & Metrics**
+   - Could add telemetry
+   - Performance monitoring
+   - Usage statistics
 
-1. The actual availability and behavior of these parameters may vary depending on the specific model version and configuration used in the Replicate API.
+2. **Caching**
+   - Request caching
+   - Response caching
+   - Rate limiting
 
-2. Some parameters may be mutually exclusive or only applicable in certain contexts (e.g., `init_image` and `mask` are only used for img2img or inpainting tasks).
+3. **Documentation**
+   - API documentation
+   - More code comments
+   - Integration examples
 
-3. The acceptable values provided are general guidelines. Specific models might have different ranges or options.
+## Security Considerations
 
-4. Always refer to the most up-to-date Replicate API documentation for the exact parameters supported by the model you're using, as they may change or be updated over time.
+- API key validation
+- CORS configuration
+- Request validation
+- Error message sanitization
+- Timeout configuration
 
-5. When implementing these headers in your API, make sure to validate the input values to ensure they fall within acceptable ranges and formats.
+## License
 
-This table provides a comprehensive overview of the parameters that can be controlled via HTTP headers in your image generation API, allowing for fine-grained control over the generation process while maintaining compatibility with the OpenAI-style request body.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+### MIT License Summary
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+- The software is provided "as is", without warranty of any kind.
+
+Copyright (c) 2024 Garrett Quinn Adonis
